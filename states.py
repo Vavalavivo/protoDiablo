@@ -13,7 +13,11 @@ class State:
         return False
 
 
-class Stay(State):
+class Standing(State):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.text = 'standing'
+
     pass
 
 
@@ -24,6 +28,7 @@ class Moving(State):
         self.target = 0  # Индекс точки из массива PATH
         self.center = np.array([self.object.board.cell_height // 2,
                                 self.object.board.cell_width // 2], int)
+        self.text = 'moving'
 
     def do(self):
         time = self.clock.tick() // self.object.board.fps
@@ -39,13 +44,18 @@ class Moving(State):
             # self.object.global_pos = end
             self.target += 1
             if self.target == np.shape(self.path)[0]:
-                self.object.state = Stay(self.object)
+                self.object.set_state(Standing(self.object))
             return True
 
         if vector[0] >= 0:
             angle = acos(vector[1] / line)
         else:
             angle = 2 * pi - acos(vector[1] / line)
+
+        if pi / 2 < angle <= 3 * pi / 2:
+            self.object.orientation = 1
+        else:
+            self.object.orientation = 0
 
         output = np.array([int(time * speed * -sin(angle)), int(time * speed * cos(angle))])
         self.object.global_pos = self.object.global_pos + output

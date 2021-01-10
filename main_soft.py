@@ -29,7 +29,6 @@ class PlayingBoard:
         self.height = 11
         self.win_width = self.width * self.cell_width
         self.win_height = self.height * self.cell_height
-        self.player = Player(self)
 
         self.attacks = {}
 
@@ -53,6 +52,7 @@ class PlayingBoard:
             try:
                 image = pygame.image.load(os.path.join('data_images', name))
             except Exception as exc:
+                print('ЧТО-ТО НЕ ТАК С ИЗОБРАЖЕНИЯМИ')
                 self.running[0] = False
                 return
             name = name.rstrip('.png')
@@ -67,14 +67,15 @@ class PlayingBoard:
 
         return output
 
-    def set_ref(self, cursor):
+    def set_ref(self, cursor, player):
         self.cursor = cursor
+        self.player = player
 
     def get_attacks(self):
         return self.attacks
 
     def clicked(self):  # !!! Определить ПОНОВОЙ
-        x1, y1 = self.player.sprite.rect.x // self.cell_width, self.player.sprite.rect.y // self.cell_height
+        x1, y1 = self.win_width // 2 // self.cell_width, self.win_height // 2 // self.cell_height
         mp = self.cursor.get_pos()
         x2 = (mp[0] - (self.cell_width // 2 - self.player.in_cell[0]) + 32) // self.cell_width
         y2 = (mp[1] - (self.cell_height // 2 - self.player.in_cell[1]) - 32) // self.cell_height
@@ -85,7 +86,7 @@ class PlayingBoard:
 
         path = path + self.player.focus
 
-        self.player.state = states.Moving(path, self.player)
+        self.player.set_state(states.Moving(path, self.player))
 
     def get_cell(self, global_pos):
         output = np.array([global_pos[0] % self.cell_height,
@@ -155,17 +156,44 @@ class Player:
                                (self.global_pos[1] - self.board.win_width // 2 -
                                 self.in_cell[1]) // self.board.cell_width + 1], int)
 
-        self.state = states.Stay(self)
+        self.orientation = 0
+        self.data_animations = {}  # Все анимации для героя
+        self.animation = None  # Анимация для определенного действия
+        self.index = None
+        try:
+            for name in os.listdir(r'data_images\player'):
+                tags = name.split('_')
+                # Важен порядок добовления в список
+                if tags[0] not in self.data_animations:
+                    self.data_animations[tags[0]] = [name]
+                    continue
+                self.data_animations[tags[0]].append(name)
 
-        self.hp = 100
-        self.speed = 15  # p/frame
+            for _, ant in self.data_animations.items():
+                ant.sort(key=lambda x: int(x.rstrip('.png').split('_')[1]))
+                for i in range(len(ant)):
+                    ant[i] = pygame.image.load(os.path.join('data_images', 'player', ant[i]))
+        except Exception as exc:
+            print('ЧТО-ТО НЕ ТАК С ИЗОБРАЖЕНИЯМИ')
+            raise exc
+        else:
+            if len(self.data_animations.keys()) != 2:
+                print('ЧТО-ТО НЕ ТАК С ИЗОБРАЖЕНИЯМИ')
+                raise Exception
 
+        self.state = None
         self.sprite_group = pygame.sprite.Group()
         self.sprite = pygame.sprite.Sprite(self.sprite_group)
-        self.sprite.image = board.toc['player']
-        self.sprite.rect = self.sprite.image.get_rect()
+        self.set_state(states.Standing(self))
+        self.update()
+        '''self.sprite.rect = self.sprite.image.get_rect()
         self.sprite.rect.x = self.board.win_width // 2 - 32
-        self.sprite.rect.y = self.board.win_height // 2 - 32
+        self.sprite.rect.y = self.board.win_height // 2 - 76'''
+
+        self.hp = 100
+        self.speed = 10  # p/frame
+
+        # Вроде ненужная херня self.sprite.image = board.toc['player']
 
     def draw(self, screen):
         self.sprite_group.draw(screen)
@@ -185,6 +213,30 @@ class Player:
                                     self.in_cell[0]) // self.board.cell_height + 1,
                                    (self.global_pos[1] - self.board.win_width // 2 -
                                     self.in_cell[1]) // self.board.cell_width + 1], int)
+
+        # Смена кадров, есть зависимость от направления взгляда персонажа
+        if self.orientation == 0:
+            self.sprite.image = self.animation[self.index // (self.board.fps // len(self.animation))]
+            self.sprite.rect = self.sprite.image.get_rect()
+            self.sprite.rect.x = self.board.win_width // 2 - 32
+            self.sprite.rect.y = self.board.win_height // 2 - 76
+        else:
+            self.sprite.image = pygame.transform.flip(self.animation[self.index // (self.board.fps
+                                                                                    // len(self.animation))],
+                                                      True, False)
+            self.sprite.rect = self.sprite.image.get_rect()
+            self.sprite.rect.x = self.board.win_width // 2 - 96
+            self.sprite.rect.y = self.board.win_height // 2 - 76
+
+        # Возможно надо еще поменять размер спрайта
+        self.index += 1
+        if self.index // (self.board.fps // len(self.animation)) == len(self.animation):
+            self.index = 0
+
+    def set_state(self, state):
+        self.animation = self.data_animations[state.text]
+        self.index = 0
+        self.state = state
 
 
 class Cursor:
@@ -231,7 +283,8 @@ def main():
     if not running[0]:
         return
     cursor = Cursor(screen, running, board)
-    board.set_ref(cursor)
+    player = Player(board)
+    board.set_ref(cursor, player)
     clock = pygame.time.Clock()
 
     while running[0]:
