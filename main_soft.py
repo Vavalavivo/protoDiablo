@@ -21,9 +21,9 @@ class PlayingBoard:
         self.cell_width = 128
         self.cell_height = 64
 
-        self.nps_group = pygame.sprite.Group()
-        self.mobs_group = pygame.sprite.Group()
-        self.hero = pygame.sprite.Group()
+        self.out_view = pygame.sprite.Group()
+        self.in_view = pygame.sprite.Group()
+        self.mobs_points = [sprites.MobsGroup(np.array([600, 2300], int))]
 
         self.width = 9
         self.height = 11
@@ -70,6 +70,21 @@ class PlayingBoard:
     def set_ref(self, cursor, player):
         self.cursor = cursor
         self.player = player
+        self.out_view.add(self.player)
+
+    def create_mobs(self, point):
+        for _ in range(random.randint(1, 3)):
+            pos = np.array([random.randint(point.global_pos[0] - 256, point.global_pos[0] + 256),
+                            random.randint(point.global_pos[1] - 256, point.global_pos[1] + 256)], int)
+            spt = sprites.Mob(pos, self)
+            point.add(spt)
+            self.out_view.add(spt)
+
+    def set_attack(self, start, end):
+        if start not in self.attacks:
+            self.attacks[start] = [(end, start.damage)]
+            return
+        self.attacks[start].append((end, start.damage))
 
     def get_attacks(self):
         return self.attacks
@@ -86,13 +101,17 @@ class PlayingBoard:
 
         path = path + self.player.focus
 
-        self.player.set_state(states.Moving(path, self.player))
+        self.player.set_states(states.Moving(path, self.player))
 
     def get_cell(self, global_pos):
         output = np.array([global_pos[0] % self.cell_height,
                            global_pos[1] % self.cell_width], int)
 
         return output
+
+    def get_line(self, start, end):
+        vector = end - start
+        return np.sum(vector * vector) ** 0.5
 
     def has_path(self, x1, y1, x2, y2):
         d = {(x1, y1): []}
@@ -120,10 +139,29 @@ class PlayingBoard:
         return d.get((x2, y2), [])
 
     def render(self):
-        self.player.update()
+        self.in_view.empty()
+        self.out_view.update()
+
+        for group in self.mobs_points:
+            line = self.get_line(self.player.global_pos, group.global_pos)
+            if not group.sprites():
+                if line <= 2000:
+                    self.create_mobs(group)
+            else:
+                if line >= 3000:
+                    [i.kill() for i in group.sprites()]
+
+        pre_sort = []
+        for sprite in self.out_view.sprites():
+            if self.get_line(self.player.global_pos, sprite.global_pos) <= 1500:
+                pre_sort.append(sprite)
+        pre_sort.sort(key=lambda ob: ob.rect.y)
+
+        [self.in_view.add(i) for i in pre_sort]
+        self.in_view.add(self.player)
+
         yd, xd = self.player.focus[0], self.player.focus[1]
         area = pygame.sprite.Group()
-
         for y in range(-1, self.height + 1):
             for x in range(-1, self.width + 1):
                 sprite = pygame.sprite.Sprite()
@@ -132,111 +170,9 @@ class PlayingBoard:
                 sprite.rect.x = x * self.cell_width + (self.cell_width // 2 - self.player.in_cell[1])
                 sprite.rect.y = y * self.cell_height + (self.cell_height // 2 - self.player.in_cell[0])
                 area.add(sprite)
-
         area.draw(self.screen)
 
-        self.mobs_group.draw(self.screen)
-
-        self.nps_group.draw(self.screen)
-
-        self.player.draw(self.screen)
-
-
-class Player:
-    def __init__(self, board):
-        self.global_pos = np.array([540, 2000], int)
-        self.board = board
-
-        self.in_cell = np.array([self.global_pos[0] % self.board.cell_height,
-                                 self.global_pos[1] % self.board.cell_width], int)  # y_x
-
-        # y_x, показывает с какой КЛЕТКИ ПОЛЯ камера показывает картинку
-        self.focus = np.array([(self.global_pos[0] - self.board.win_height // 2 -
-                                self.in_cell[0]) // self.board.cell_height + 1,
-                               (self.global_pos[1] - self.board.win_width // 2 -
-                                self.in_cell[1]) // self.board.cell_width + 1], int)
-
-        self.orientation = 0
-        self.data_animations = {}  # Все анимации для героя
-        self.animation = None  # Анимация для определенного действия
-        self.index = None
-        try:
-            for name in os.listdir(r'data_images\player'):
-                tags = name.split('_')
-                # Важен порядок добовления в список
-                if tags[0] not in self.data_animations:
-                    self.data_animations[tags[0]] = [name]
-                    continue
-                self.data_animations[tags[0]].append(name)
-
-            for _, ant in self.data_animations.items():
-                ant.sort(key=lambda x: int(x.rstrip('.png').split('_')[1]))
-                for i in range(len(ant)):
-                    ant[i] = pygame.image.load(os.path.join('data_images', 'player', ant[i]))
-        except Exception as exc:
-            print('ЧТО-ТО НЕ ТАК С ИЗОБРАЖЕНИЯМИ')
-            raise exc
-        else:
-            if len(self.data_animations.keys()) != 2:
-                print('ЧТО-ТО НЕ ТАК С ИЗОБРАЖЕНИЯМИ')
-                raise Exception
-
-        self.state = None
-        self.sprite_group = pygame.sprite.Group()
-        self.sprite = pygame.sprite.Sprite(self.sprite_group)
-        self.set_state(states.Standing(self))
-        self.update()
-        '''self.sprite.rect = self.sprite.image.get_rect()
-        self.sprite.rect.x = self.board.win_width // 2 - 32
-        self.sprite.rect.y = self.board.win_height // 2 - 76'''
-
-        self.hp = 100
-        self.speed = 10  # p/frame
-
-        # Вроде ненужная херня self.sprite.image = board.toc['player']
-
-    def draw(self, screen):
-        self.sprite_group.draw(screen)
-
-    def update(self):
-        for mob, info in self.board.attacks.items():
-            if info[0] == 'PLAYER':
-                self.hp -= info[1]
-                self.board.attacks.pop(mob)
-                # DEATH!!!
-
-        if self.state.do():
-            self.in_cell = np.array([self.global_pos[0] % self.board.cell_height,
-                                     self.global_pos[1] % self.board.cell_width], int)
-
-            self.focus = np.array([(self.global_pos[0] - self.board.win_height // 2 -
-                                    self.in_cell[0]) // self.board.cell_height + 1,
-                                   (self.global_pos[1] - self.board.win_width // 2 -
-                                    self.in_cell[1]) // self.board.cell_width + 1], int)
-
-        # Смена кадров, есть зависимость от направления взгляда персонажа
-        if self.orientation == 0:
-            self.sprite.image = self.animation[self.index // (self.board.fps // len(self.animation))]
-            self.sprite.rect = self.sprite.image.get_rect()
-            self.sprite.rect.x = self.board.win_width // 2 - 32
-            self.sprite.rect.y = self.board.win_height // 2 - 76
-        else:
-            self.sprite.image = pygame.transform.flip(self.animation[self.index // (self.board.fps
-                                                                                    // len(self.animation))],
-                                                      True, False)
-            self.sprite.rect = self.sprite.image.get_rect()
-            self.sprite.rect.x = self.board.win_width // 2 - 96
-            self.sprite.rect.y = self.board.win_height // 2 - 76
-
-        # Возможно надо еще поменять размер спрайта
-        self.index += 1
-        if self.index // (self.board.fps // len(self.animation)) == len(self.animation):
-            self.index = 0
-
-    def set_state(self, state):
-        self.animation = self.data_animations[state.text]
-        self.index = 0
-        self.state = state
+        self.in_view.draw(self.screen)
 
 
 class Cursor:
@@ -283,7 +219,7 @@ def main():
     if not running[0]:
         return
     cursor = Cursor(screen, running, board)
-    player = Player(board)
+    player = sprites.Player(np.array([540, 2000], int), board)
     board.set_ref(cursor, player)
     clock = pygame.time.Clock()
 

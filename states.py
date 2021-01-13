@@ -21,6 +21,24 @@ class Standing(State):
     pass
 
 
+class Attack(State):
+    def __init__(self, target, *args):  # Два класса
+        super().__init__(*args)
+        self.target = target
+        self.text = 'attack'
+
+    def do(self):
+        # Достигнута ли середина анимации (момент нанесения удара)
+        if self.object.index // (self.object.board.fps // len(self.object.animation)) \
+                == len(self.object.animation) // 2:
+            vector = self.target.global_pos - self.object.global_pos
+            line = np.sum(vector * vector) ** 0.5
+            if line <= self.object.rect[0]:
+                self.object.board.set_attack(self.object, self.target)
+            elif line >= 400:
+                self.object.set_state(Standing(self.object))
+
+
 class Moving(State):
     def __init__(self, path, *args):
         super().__init__(*args)
@@ -41,10 +59,11 @@ class Moving(State):
         vector = np.array([start[0] - end[0], end[1] - start[1]], int)
         line = np.sum(vector * vector) ** 0.5  # Рассторяние до цели
         if line <= 10:  # Достижение опр клетки в пути
-            # self.object.global_pos = end
             self.target += 1
             if self.target == np.shape(self.path)[0]:
-                self.object.set_state(Standing(self.object))
+                _ = self.object.states.pop(0)
+                if not self.object.states:
+                    self.object.set_states(Standing(self.object))
             return True
 
         if vector[0] >= 0:
