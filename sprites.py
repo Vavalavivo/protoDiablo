@@ -18,15 +18,14 @@ class Animation(list):
 
     def get(self, index):
         if self.timers[index[0]] == index[1]:
-            index[1] = 0
             output = self[index[0]]
             if index[0] + 1 == len(self.timers):
                 index[0] = 0
             else:
                 index[0] += 1
-            return output
+            return output, lambda x: 0, index[0] == 0
 
-        return self[index[0] - 1]
+        return self[index[0] - 1], lambda x: x + 1, False
 
 
 data_ani_mobs = {}
@@ -46,7 +45,7 @@ except Exception as exc:
     print('ЧТО-ТО НЕ ТАК С ИЗОБРАЖЕНИЯМИ')
     raise exc
 else:
-    if len(data_ani_mobs.keys()) != 1:
+    if len(data_ani_mobs.keys()) != 3:
         print('ЧТО-ТО НЕ ТАК С ИЗОБРАЖЕНИЯМИ')
         raise Exception
 
@@ -69,16 +68,14 @@ class Object(pygame.sprite.Sprite):
         self.states = None
         self.animation = None
 
-    def takes_damage(self, damage):
-        self.hp -= damage
-        if self.hp <= 0:
-            # !!!!!!!!!!!!!!!!!!!!!!!!! DEAD !!!!!!!!!!!!!!!!!!!!!!!!!!!
-            pass
-
     def set_states(self, *states):
         self.animation = self.data_animations[states[0].text]
         self.index = [0, 0]
         self.states = [i for i in states]
+
+
+class Damaged(Object):
+    pass
 
 
 class Mob(Object):
@@ -87,7 +84,7 @@ class Mob(Object):
 
         self.data_animations = data_ani_mobs
 
-        self.hp = 200
+        self.hp = 80
         self.speed = 6
         self.damage = 15
 
@@ -100,14 +97,30 @@ class Mob(Object):
                                      self.global_pos[1] % self.board.cell_width], int)
 
         if self.orientation == 0:
-            self.image = self.animation.get(self.index)
+            im, fun, _ = self.animation.get(self.index)
+            self.image = im
             self.update_image(32, 76)
         else:
-            self.image = pygame.transform.flip(self.animation.get(self.index),
-                                               True, False)
+            im, fun, _ = self.animation.get(self.index)
+            self.image = pygame.transform.flip(im, True, False)
             self.update_image(96, 76)
 
-        self.index[1] += 1
+        self.index[1] = fun(self.index[1])
+
+        line = self.board.get_line(self.global_pos, self.board.player.global_pos)
+        if line <= self.rect.w / 2:
+            self.set_states(states.Attack(self.board.player, self))
+        elif line <= 300:
+            x1, y1 = (self.global_pos - self.board.player.focus * self.board.cell_size) // self.board.cell_size
+            x2 = self.board.win_width // 2 // self.board.cell_width
+            y2 = self.board.win_height // 2 // self.board.cell_height
+            path = self.board.has_path(x1, y1, x2, y2)
+            if not path:
+                pass
+            else:
+                self.set_states(states.Moving(path, self))
+        elif line >= 300:
+            self.set_states(states.Standing(self))
 
     def update_image(self, x, y):
         self.rect = self.image.get_rect()
@@ -115,6 +128,14 @@ class Mob(Object):
             interim = self.global_pos - self.board.player.focus * self.board.cell_size
             self.rect.x = interim[1] - x + self.board.cell_width // 2 - self.board.player.in_cell[1]
             self.rect.y = interim[0] - y + self.board.cell_height // 2 - self.board.player.in_cell[0]
+            return
+        self.rect.x = -200
+        self.rect.y = -200
+
+    def takes_damage(self, damage):
+        self.hp -= damage
+        if self.hp <= 0:
+            self.kill()
 
 
 class Player(Object):
@@ -127,6 +148,7 @@ class Player(Object):
         self.hp = 100
         self.speed = 10  # p/frame
         self.damage = 10
+        self.cdn = 0  # max=45 frames
 
         try:
             for name in os.listdir(r'data_images\player'):
@@ -144,7 +166,7 @@ class Player(Object):
             print('ЧТО-ТО НЕ ТАК С ИЗОБРАЖЕНИЯМИ')
             raise exc
         else:
-            if len(self.data_animations.keys()) != 2:
+            if len(self.data_animations.keys()) != 3:
                 print('ЧТО-ТО НЕ ТАК С ИЗОБРАЖЕНИЯМИ')
                 raise Exception
 
@@ -152,6 +174,8 @@ class Player(Object):
         self.update()
 
     def update(self):
+        self.cdn = max(0, self.cdn - 1)
+
         if self.states[0].do():
             self.in_cell = np.array([self.global_pos[0] % self.board.cell_height,
                                      self.global_pos[1] % self.board.cell_width], int)
@@ -160,14 +184,20 @@ class Player(Object):
 
         # Смена кадров, есть зависимость от направления взгляда персонажа
         if self.orientation == 0:
-            self.image = self.animation.get(self.index)
+            im, fun, stop = self.animation.get(self.index)
+            self.image = im
             self.update_image(32, 76)
         else:
-            self.image = pygame.transform.flip(self.animation.get(self.index),
-                                               True, False)
+            im, fun, stop = self.animation.get(self.index)
+            self.image = pygame.transform.flip(im, True, False)
             self.update_image(96, 76)
 
-        self.index[1] += 1
+        if stop and self.states[0].text == 'attack':
+            self.set_states(states.Standing(self))
+            self.cdn = 20
+            return
+
+        self.index[1] = fun(self.index[1])
 
     def update_image(self, x, y):
         self.rect = self.image.get_rect()
@@ -179,6 +209,9 @@ class Player(Object):
                                 self.in_cell[0]) // self.board.cell_height + 1,
                                (self.global_pos[1] - self.board.win_width // 2 -
                                 self.in_cell[1]) // self.board.cell_width + 1], int)
+
+    def takes_damage(self, damage):
+        self.hp -= damage
 
 
 class MobsGroup(pygame.sprite.Group):

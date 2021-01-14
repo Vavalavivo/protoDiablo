@@ -5,6 +5,8 @@ import numpy as np
 import states
 import sprites
 
+from math import pi, acos
+
 from time import perf_counter
 
 
@@ -15,6 +17,7 @@ class PlayingBoard:
         self.fps = fps
         self.camera = None
         self.cursor = None
+        self.player = None
         self.map = self.load_map(map_filename)
         self.toc = self.create_toc(images)
         self.cell_size = np.array([64, 128], int)  # height_width
@@ -23,7 +26,7 @@ class PlayingBoard:
 
         self.out_view = pygame.sprite.Group()
         self.in_view = pygame.sprite.Group()
-        self.mobs_points = [sprites.MobsGroup(np.array([600, 2300], int))]
+        self.mobs_points = [sprites.MobsGroup(np.array([600, 2500], int))]
 
         self.width = 9
         self.height = 11
@@ -71,6 +74,7 @@ class PlayingBoard:
         self.cursor = cursor
         self.player = player
         self.out_view.add(self.player)
+        [self.create_mobs(gr) for gr in self.mobs_points]
 
     def create_mobs(self, point):
         for _ in range(random.randint(1, 3)):
@@ -94,6 +98,34 @@ class PlayingBoard:
         mp = self.cursor.get_pos()
         x2 = (mp[0] - (self.cell_width // 2 - self.player.in_cell[0]) + 32) // self.cell_width
         y2 = (mp[1] - (self.cell_height // 2 - self.player.in_cell[1]) - 32) // self.cell_height
+
+        move = True
+        for sprite in self.in_view.sprites():
+            if sprite.rect.collidepoint(mp) and sprite != self.player:
+                if self.player.states[0].text == 'attack':
+                    move = False
+                    break
+                if self.get_line(self.player.global_pos, sprite.global_pos) <= 128 and self.player.cdn == 0:
+                    self.player.set_states(states.Attack(sprite, self.player))
+                    move = False
+                    break
+                elif self.get_line(self.player.global_pos, sprite.global_pos) <= 128 and self.player.cdn != 0:
+                    move = False
+                    break
+
+        if not move:
+            vector = np.array([mp[1], mp[0]]) + self.player.focus * self.cell_size - self.player.global_pos
+            line = np.sum(vector * vector) ** 0.5
+            if vector[0] >= 0:
+                angle = acos(vector[1] / line)
+            else:
+                angle = 2 * pi - acos(vector[1] / line)
+
+            if pi / 2 < angle <= 3 * pi / 2:
+                self.player.orientation = 1
+            else:
+                self.player.orientation = 0
+            return
 
         path = self.has_path(x1, y1, x2, y2)
         if not path:
@@ -140,16 +172,6 @@ class PlayingBoard:
 
     def render(self):
         self.in_view.empty()
-        self.out_view.update()
-
-        for group in self.mobs_points:
-            line = self.get_line(self.player.global_pos, group.global_pos)
-            if not group.sprites():
-                if line <= 2000:
-                    self.create_mobs(group)
-            else:
-                if line >= 3000:
-                    [i.kill() for i in group.sprites()]
 
         pre_sort = []
         for sprite in self.out_view.sprites():
@@ -173,6 +195,21 @@ class PlayingBoard:
         area.draw(self.screen)
 
         self.in_view.draw(self.screen)
+
+        self.out_view.update()
+        keys = [i for i in self.attacks]
+        for key in keys:
+            value = self.attacks.pop(key)
+            for sprite, damage in value:
+                sprite.takes_damage(damage)
+
+        for n, gr in enumerate(self.mobs_points):
+            if not gr.sprites():
+                _ = self.mobs_points.pop(n)
+
+
+class Interface:
+    pass
 
 
 class Cursor:

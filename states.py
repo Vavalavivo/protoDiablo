@@ -29,12 +29,28 @@ class Attack(State):
 
     def do(self):
         # Достигнута ли середина анимации (момент нанесения удара)
-        if self.object.index // (self.object.board.fps // len(self.object.animation)) \
-                == len(self.object.animation) // 2:
+        if self.object.index[0] == len(self.object.animation) // 2:
             vector = self.target.global_pos - self.object.global_pos
             line = np.sum(vector * vector) ** 0.5
-            if line <= self.object.rect[0]:
+            if line <= self.object.rect.w / 3 * 2:
                 self.object.board.set_attack(self.object, self.target)
+
+
+class MobAttack(State):
+    def __init__(self, target, *args):  # Два класса
+        super().__init__(*args)
+        self.target = target
+        self.text = 'attack'
+
+    def do(self):
+        # Достигнута ли середина анимации (момент нанесения удара)
+        if self.object.index[0] == len(self.object.animation) // 2:
+            vector = self.target.global_pos - self.object.global_pos
+            line = np.sum(vector * vector) ** 0.5
+            if line <= self.object.rect.w:
+                self.object.board.set_attack(self.object, self.target)
+                if self.target.hp <= 0:
+                    self.object.set_states(Standing(self.object))
             elif line >= 400:
                 self.object.set_state(Standing(self.object))
 
