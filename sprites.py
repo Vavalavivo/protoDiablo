@@ -88,6 +88,8 @@ class Mob(Object):
         self.speed = 6
         self.damage = 15
 
+        self.to = 0
+
         self.set_states(states.Standing(self))
         self.update()
 
@@ -107,17 +109,27 @@ class Mob(Object):
 
         self.index[1] = fun(self.index[1])
 
+        if self.to != 30:
+            self.to += 1
+            return
+        else:
+            self.to = 0
+
+        # Проверка дальности до игрока
         line = self.board.get_line(self.global_pos, self.board.player.global_pos)
         if line <= self.rect.w / 2:
             self.set_states(states.Attack(self.board.player, self))
         elif line <= 300:
-            x1, y1 = (self.global_pos - self.board.player.focus * self.board.cell_size) // self.board.cell_size
+            x1, y1 = (self.global_pos - self.board.player.focus * self.board.cell_size - (
+                        self.board.cell_size // 2 - self.board.player.in_cell) + np.array(
+                [64, 64])) // self.board.cell_size
             x2 = self.board.win_width // 2 // self.board.cell_width
             y2 = self.board.win_height // 2 // self.board.cell_height
             path = self.board.has_path(x1, y1, x2, y2)
             if not path:
                 pass
             else:
+                path = path + self.board.player.focus
                 self.set_states(states.Moving(path, self))
         elif line >= 300:
             self.set_states(states.Standing(self))
@@ -212,6 +224,47 @@ class Player(Object):
 
     def takes_damage(self, damage):
         self.hp -= damage
+
+
+class Cursor:
+    def __init__(self, screen, running, board):
+        self.screen = screen
+        self.running = running
+
+        self.group = pygame.sprite.Group()
+        self.sprite = pygame.sprite.Sprite(self.group)
+        self.images = {}
+
+        try:
+            for name in os.listdir(r'data_images/cursor'):
+                tags = name.split('_')
+                self.images[tags[0]] = pygame.image.load(os.path.join(r'data_images/cursor', name))
+        except:
+            print('ЧТО-ТО НЕ ТАК С ИЗОБРАЖЕНИЯМИ')
+            raise exc
+
+        self.sprite.image = self.images['idle']
+        self.sprite.rect = self.sprite.image.get_rect()
+        self.sprite.rect.x = 0
+        self.sprite.rect.y = 0
+
+    def update_pos(self, pos):
+        self.sprite.rect.x = pos[0]
+        self.sprite.rect.y = pos[1]
+
+    def get_pos(self):
+        return self.sprite.rect.x, self.sprite.rect.y
+
+    def draw(self):
+        if pygame.mouse.get_focused():
+            self.group.draw(self.screen)
+
+    def update(self, flag):
+        x, y = self.sprite.rect.x, self.sprite.rect.y
+        self.sprite.image = self.images[flag]
+        self.sprite.rect = self.sprite.image.get_rect()
+        self.sprite.rect.x = x
+        self.sprite.rect.y = y
 
 
 class MobsGroup(pygame.sprite.Group):

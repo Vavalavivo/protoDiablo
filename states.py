@@ -3,6 +3,8 @@ import numpy as np
 
 from math import acos, pi, sin, cos
 
+import os
+
 
 class State:
     def __init__(self, other):
@@ -96,3 +98,53 @@ class Moving(State):
         self.object.global_pos = self.object.global_pos + output
 
         return True
+
+
+class StInter:
+    def __init__(self, state):
+        self.sprites = []
+        interim = []
+        try:
+            for name in os.listdir(r'data_images/interface'):
+                tags = name.split('_')
+                if tags[0] == state:
+                    interim.append(name)
+        except Exception as exc:
+            print('ЧТО-ТО НЕ ТАК С ИЗОБРАЖЕНИЯМИ')
+            raise exc
+        interim.sort(key=lambda obj: int(obj.rstrip('.png').split('_')[-1]))
+        for name in interim:
+            x, y = tuple(map(int, name.rstrip('.png').split('_')[-2].split('x')))
+            sprite = pygame.sprite.Sprite()
+            sprite.image = pygame.image.load(os.path.join(r'data_images/interface', name))
+            sprite.rect = sprite.image.get_rect()
+            sprite.rect.x = x
+            sprite.rect.y = y
+            self.sprites.append(sprite)
+
+    def get_environment(self):
+        pass
+
+
+class InGame(StInter):
+    def __init__(self):
+        super().__init__('ingame')
+        self.text = 'ingame'
+
+    def get_hp(self, dlt):
+        pass
+
+
+class Pause(StInter):
+    def __init__(self):
+        super().__init__('pause')
+
+
+class Menu(StInter):
+    def __init__(self):
+        super().__init__('menu')
+
+
+class Dialog(StInter):
+    def __init__(self):
+        super().__init__('dialog')

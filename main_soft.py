@@ -38,7 +38,7 @@ class PlayingBoard:
     def load_map(self, filename):
         interim = []
         with open(filename, 'r') as file:
-            interim = [i.rstrip('\n') for i in file.readlines()]
+            interim = [i.rstrip('\n').split() for i in file.readlines()]
 
         output = np.zeros((30, 100), dtype=int)
         for y, mas in enumerate(interim):
@@ -51,22 +51,13 @@ class PlayingBoard:
     def create_toc(self, images):
         output = {}
 
-        for name in images:
-            try:
-                image = pygame.image.load(os.path.join('data_images', name))
-            except Exception as exc:
-                print('ЧТО-ТО НЕ ТАК С ИЗОБРАЖЕНИЯМИ')
-                self.running[0] = False
-                return
-            name = name.rstrip('.png')
-            if '_' in name:
-                output[int(name.split('_')[-1])] = image
-            else:
-                output[name] = image
-
-        space = pygame.Surface((128, 64))
-        pygame.draw.rect(space, (0, 0, 255), pygame.Rect(0, 0, 128, 64))
-        output[0] = output['rock']
+        try:
+            for name in os.listdir(r'data_images\ground'):
+                tags = name.rstrip('.png').split('_')
+                output[int(tags[1])] = pygame.image.load(os.path.join(r'data_images\ground', name))
+        except Exception as exc:
+            print('ЧТО-ТО НЕ ТАК С ИЗОБРАЖЕНИЯМИ')
+            raise exc
 
         return output
 
@@ -209,32 +200,15 @@ class PlayingBoard:
 
 
 class Interface:
-    pass
+    def __init__(self, screen):
+        self.states = (states.InGame(), states.Pause(), states.Menu(), states.Dialog())
 
-
-class Cursor:
-    def __init__(self, screen, running, board):
-        self.screen = screen
-        self.running = running
-
+        self.cam = screen
         self.group = pygame.sprite.Group()
-        self.sprite = pygame.sprite.Sprite(self.group)
-
-        self.sprite.image = board.toc['cursor']
-        self.sprite.rect = self.sprite.image.get_rect()
-        self.sprite.rect.x = 0
-        self.sprite.rect.y = 0
-
-    def update_pos(self, pos):
-        self.sprite.rect.x = pos[0]
-        self.sprite.rect.y = pos[1]
-
-    def get_pos(self):
-        return self.sprite.rect.x, self.sprite.rect.y
+        self.state = 'ingame'
 
     def draw(self):
-        if pygame.mouse.get_focused():
-            self.group.draw(self.screen)
+        self.group.draw(self.cam)
 
 
 def main():
@@ -252,10 +226,11 @@ def main():
         'cursor.png',
         'rock.png'
     )
+    interface = Interface(screen)
     board = PlayingBoard(screen, running, 'map.txt', images, FPS)
     if not running[0]:
         return
-    cursor = Cursor(screen, running, board)
+    cursor = sprites.Cursor(screen, running, board)
     player = sprites.Player(np.array([540, 2000], int), board)
     board.set_ref(cursor, player)
     clock = pygame.time.Clock()
@@ -268,10 +243,15 @@ def main():
             if event.type == pygame.MOUSEMOTION:
                 cursor.update_pos(event.pos)
             if event.type == pygame.MOUSEBUTTONDOWN:
+                cursor.update('down')
                 board.clicked()
+            if event.type == pygame.MOUSEBUTTONUP:
+                cursor.update('idle')
 
         screen.fill((0, 255, 0))
-        board.render()
+        if interface.state == 'ingame':
+            board.render()
+        interface.draw()
         cursor.draw()
         pygame.display.flip()
         clock.tick(FPS)
