@@ -11,7 +11,7 @@ from time import perf_counter
 
 
 class PlayingBoard:
-    def __init__(self, screen, running, map_filename, images, fps):
+    def __init__(self, screen, running, map_filename, fps):
         self.screen = screen
         self.running = running
         self.fps = fps
@@ -19,13 +19,14 @@ class PlayingBoard:
         self.cursor = None
         self.player = None
         self.map = self.load_map(map_filename)
-        self.toc = self.create_toc(images)
+        self.toc = self.create_toc()
         self.cell_size = np.array([64, 128], int)  # height_width
         self.cell_width = 128
         self.cell_height = 64
 
         self.out_view = pygame.sprite.Group()
         self.in_view = pygame.sprite.Group()
+        self.effects = pygame.sprite.Group()
         self.mobs_points = [sprites.MobsGroup(np.array([600, 2500], int))]
 
         self.width = 9
@@ -48,7 +49,7 @@ class PlayingBoard:
 
         return output
 
-    def create_toc(self, images):
+    def create_toc(self):
         output = {}
 
         try:
@@ -193,6 +194,11 @@ class PlayingBoard:
             value = self.attacks.pop(key)
             for sprite, damage in value:
                 sprite.takes_damage(damage)
+                ef = sprites.EfDamaged(120, sprite.global_pos.copy(), self)
+                self.effects.add(ef)
+                self.out_view.add(ef)
+
+        self.effects.draw(self.screen)
 
         for n, gr in enumerate(self.mobs_points):
             if not gr.sprites():
@@ -200,15 +206,65 @@ class PlayingBoard:
 
 
 class Interface:
-    def __init__(self, screen):
-        self.states = (states.InGame(), states.Pause(), states.Menu(), states.Dialog())
+    def __init__(self, screen, running):
+        self.funcs = {
+            'continue': self.continue_gm,
+            'save': self.save_gm,
+            'exit': self.exit,
+            'none': self.nothing
+        }
 
-        self.cam = screen
-        self.group = pygame.sprite.Group()
+        self.states = {'ingame': states.InGame(self.funcs),
+                       'pause': states.Pause(self.funcs),
+                       'menu': states.Menu(self.funcs),
+                       'dialog': states.Dialog(self.funcs)}
+
+        self.running = running
+        self.screen = screen
+        self.active = pygame.sprite.Group()
+        self.passive = pygame.sprite.Group()
         self.state = 'ingame'
 
+        self.past_screen = self.screen.copy()
+
     def draw(self):
-        self.group.draw(self.cam)
+        self.states[self.state].set_background(self.past_screen)
+        for key, value in self.states[self.state].get_environment().items():
+            for sprite in value:
+                if key == 'pass':
+                    self.passive.add(sprite)
+                else:
+                    self.active.add(sprite)
+
+        self.passive.draw(self.screen)
+        self.active.draw(self.screen)
+
+        self.passive.empty()
+        self.active.empty()
+
+    def take_screen(self):
+        self.past_screen = self.screen.copy()
+
+    def set_state(self, state):
+        self.state = state
+
+    def clicked(self, mp):
+        for sprite in self.states[self.state].sprites['act']:
+            if sprite.rect.collidepoint(mp):
+                sprite.get_func()()
+                return True
+
+    def continue_gm(self):
+        self.set_state('ingame')
+
+    def save_gm(self):
+        pass
+
+    def exit(self):
+        self.running[0] = False
+
+    def nothing(self):
+        pass
 
 
 def main():
@@ -220,14 +276,8 @@ def main():
 
     FPS = 30
     running = [True]
-    images = (
-        'sprite_1.png',
-        'player.png',
-        'cursor.png',
-        'rock.png'
-    )
-    interface = Interface(screen)
-    board = PlayingBoard(screen, running, 'map.txt', images, FPS)
+    interface = Interface(screen, running)
+    board = PlayingBoard(screen, running, 'map.txt', FPS)
     if not running[0]:
         return
     cursor = sprites.Cursor(screen, running, board)
@@ -236,7 +286,6 @@ def main():
     clock = pygame.time.Clock()
 
     while running[0]:
-        st = perf_counter()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running[0] = False
@@ -244,13 +293,21 @@ def main():
                 cursor.update_pos(event.pos)
             if event.type == pygame.MOUSEBUTTONDOWN:
                 cursor.update('down')
-                board.clicked()
+                if not interface.clicked(cursor.get_pos()) and interface.state == 'ingame':
+                    board.clicked()
             if event.type == pygame.MOUSEBUTTONUP:
                 cursor.update('idle')
+            if event.type == pygame.KEYDOWN:
+                if event.key == 27:
+                    if interface.state == 'ingame':
+                        interface.set_state('pause')
+                    else:
+                        interface.set_state('ingame')
 
         screen.fill((0, 255, 0))
         if interface.state == 'ingame':
             board.render()
+            interface.take_screen()
         interface.draw()
         cursor.draw()
         pygame.display.flip()

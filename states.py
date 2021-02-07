@@ -1,9 +1,9 @@
 import pygame
 import numpy as np
+import os
+import sprites
 
 from math import acos, pi, sin, cos
-
-import os
 
 
 class State:
@@ -20,8 +20,6 @@ class Standing(State):
         super().__init__(*args)
         self.text = 'standing'
 
-    pass
-
 
 class Attack(State):
     def __init__(self, target, *args):  # Два класса
@@ -31,7 +29,7 @@ class Attack(State):
 
     def do(self):
         # Достигнута ли середина анимации (момент нанесения удара)
-        if self.object.index[0] == len(self.object.animation) // 2:
+        if self.object.index[0] == len(self.object.animation) // 2 and self.object.index[1] == 0:
             vector = self.target.global_pos - self.object.global_pos
             line = np.sum(vector * vector) ** 0.5
             if line <= self.object.rect.w / 3 * 2:
@@ -46,11 +44,12 @@ class MobAttack(State):
 
     def do(self):
         # Достигнута ли середина анимации (момент нанесения удара)
-        if self.object.index[0] == len(self.object.animation) // 2:
+        if self.object.index[0] == len(self.object.animation) // 2 and self.object.index[1] == 0:
             vector = self.target.global_pos - self.object.global_pos
             line = np.sum(vector * vector) ** 0.5
             if line <= self.object.rect.w:
                 self.object.board.set_attack(self.object, self.target)
+                self.object.cdn = 60
                 if self.target.hp <= 0:
                     self.object.set_states(Standing(self.object))
             elif line >= 400:
@@ -76,7 +75,7 @@ class Moving(State):
         # y1 - y2 т.к. перевернутый Y в системе координат
         vector = np.array([start[0] - end[0], end[1] - start[1]], int)
         line = np.sum(vector * vector) ** 0.5  # Рассторяние до цели
-        if line <= 10:  # Достижение опр клетки в пути
+        if line <= 20:  # Достижение опр клетки в пути
             self.target += 1
             if self.target == np.shape(self.path)[0]:
                 _ = self.object.states.pop(0)
@@ -101,8 +100,19 @@ class Moving(State):
 
 
 class StInter:
-    def __init__(self, state):
-        self.sprites = []
+    def __init__(self, state, funcs):
+        spr = pygame.sprite.Sprite()
+        spr.image = pygame.Surface((10, 10))
+        spr.rect = spr.image.get_rect()
+        spr.rect.x = 0
+        spr.rect.y = 0
+        self.sprites = {
+            'pass': [spr, ],
+            'act': []
+        }
+
+        self.funcs = funcs.copy()
+
         interim = []
         try:
             for name in os.listdir(r'data_images/interface'):
@@ -115,20 +125,30 @@ class StInter:
         interim.sort(key=lambda obj: int(obj.rstrip('.png').split('_')[-1]))
         for name in interim:
             x, y = tuple(map(int, name.rstrip('.png').split('_')[-2].split('x')))
-            sprite = pygame.sprite.Sprite()
+            sprite = sprites.ImageInterface()
+            sprite.set_func(funcs[name.split('_')[-4]])
             sprite.image = pygame.image.load(os.path.join(r'data_images/interface', name))
             sprite.rect = sprite.image.get_rect()
             sprite.rect.x = x
             sprite.rect.y = y
-            self.sprites.append(sprite)
+            if name.split('_')[-3] == 'pass':
+                self.sprites['pass'].append(sprite)
+            else:
+                self.sprites['act'].append(sprite)
 
     def get_environment(self):
+        return self.sprites.copy()
+
+    def clear(self):
+        _ = self.sprites['pass'].pop(0)
+
+    def set_background(self, *args):
         pass
 
 
 class InGame(StInter):
-    def __init__(self):
-        super().__init__('ingame')
+    def __init__(self, *args):
+        super().__init__('ingame', *args)
         self.text = 'ingame'
 
     def get_hp(self, dlt):
@@ -136,15 +156,28 @@ class InGame(StInter):
 
 
 class Pause(StInter):
-    def __init__(self):
-        super().__init__('pause')
+    def __init__(self, *args):
+        super().__init__('pause', *args)
+
+    def set_background(self, surface):
+        _ = self.sprites['pass'].pop(0)
+        sprite = sprites.ImageInterface()
+        sprite.set_func(self.funcs['none'])
+        sprite.image = surface
+        sprite.rect = sprite.image.get_rect()
+        sprite.rect.x = 0
+        sprite.rect.y = 0
+
+        self.sprites['pass'] = [sprite] + self.sprites['pass']
 
 
 class Menu(StInter):
-    def __init__(self):
-        super().__init__('menu')
+    def __init__(self, *args):
+        super().__init__('menu', *args)
+        self.clear()
 
 
 class Dialog(StInter):
-    def __init__(self):
-        super().__init__('dialog')
+    def __init__(self, *args):
+        super().__init__('dialog', *args)
+        self.clear()

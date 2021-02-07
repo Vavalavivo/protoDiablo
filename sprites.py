@@ -73,9 +73,8 @@ class Object(pygame.sprite.Sprite):
         self.index = [0, 0]
         self.states = [i for i in states]
 
-
-class Damaged(Object):
-    pass
+    def takes_damage(self, *args):
+        pass
 
 
 class Mob(Object):
@@ -87,6 +86,7 @@ class Mob(Object):
         self.hp = 80
         self.speed = 6
         self.damage = 15
+        self.cdn = 0  # frames, max=60
 
         self.to = 0
 
@@ -94,18 +94,23 @@ class Mob(Object):
         self.update()
 
     def update(self):
+        self.cdn = max(0, self.cdn - 1)
+
         if self.states[0].do():
             self.in_cell = np.array([self.global_pos[0] % self.board.cell_height,
                                      self.global_pos[1] % self.board.cell_width], int)
 
         if self.orientation == 0:
-            im, fun, _ = self.animation.get(self.index)
+            im, fun, stop = self.animation.get(self.index)
             self.image = im
-            self.update_image(32, 76)
+            self.update_image(50, 64)
         else:
-            im, fun, _ = self.animation.get(self.index)
+            im, fun, stop = self.animation.get(self.index)
             self.image = pygame.transform.flip(im, True, False)
-            self.update_image(96, 76)
+            self.update_image(75, 64)
+
+        if stop and self.states[0].text == 'attack':
+            self.set_states(states.Standing(self))
 
         self.index[1] = fun(self.index[1])
 
@@ -118,7 +123,10 @@ class Mob(Object):
         # Проверка дальности до игрока
         line = self.board.get_line(self.global_pos, self.board.player.global_pos)
         if line <= self.rect.w / 2:
-            self.set_states(states.Attack(self.board.player, self))
+            if self.cdn == 0 and self.states[0].text != 'attack':
+                self.set_states(states.MobAttack(self.board.player, self))
+            elif self.cdn != 0:
+                pass
         elif line <= 300:
             x1, y1 = (self.global_pos - self.board.player.focus * self.board.cell_size - (
                         self.board.cell_size // 2 - self.board.player.in_cell) + np.array(
@@ -157,7 +165,7 @@ class Player(Object):
         self.focus = None
         self.update_camera()
 
-        self.hp = 100
+        self.hp = 10000
         self.speed = 10  # p/frame
         self.damage = 10
         self.cdn = 0  # max=45 frames
@@ -206,7 +214,7 @@ class Player(Object):
 
         if stop and self.states[0].text == 'attack':
             self.set_states(states.Standing(self))
-            self.cdn = 20
+            self.cdn = 30
             return
 
         self.index[1] = fun(self.index[1])
@@ -265,6 +273,80 @@ class Cursor:
         self.sprite.rect = self.sprite.image.get_rect()
         self.sprite.rect.x = x
         self.sprite.rect.y = y
+
+
+class ImageInterface(pygame.sprite.Sprite):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.do = None
+
+    def set_func(self, func):
+        self.do = func
+
+    def get_func(self):
+        return self.do
+
+
+class Effect(Object):
+    def __init__(self, flag, time, *args):
+        super().__init__(*args)
+
+        self.lifetime = time
+
+        try:
+            for name in os.listdir(f'data_images/effects/{flag}'):
+                tags = name.split('_')
+                if tags[0] not in self.data_animations:
+                    self.data_animations[tags[0]] = Animation(name)
+                    continue
+                self.data_animations[tags[0]].append(name)
+
+            for _, ant in self.data_animations.items():
+                ant.sort(key=lambda x: int(x.rstrip('.png').split('_')[1]))
+                for i in range(len(ant)):
+                    ant[i] = pygame.image.load(os.path.join(f'data_images/effects/{flag}', ant[i]))
+        except Exception as exc:
+            print('ЧТО-ТО НЕ ТАК С ИЗОБРАЖЕНИЯМИ')
+            raise exc
+        else:
+            if len(self.data_animations.keys()) != 2:
+                print('ЧТО-ТО НЕ ТАК С ИЗОБРАЖЕНИЯМИ')
+                raise Exception
+
+
+class EfDamaged(Effect):
+    def __init__(self, *args):
+        super().__init__('damaged', *args)
+
+        self.set_states('damaged')
+        self.update()
+
+    def update(self):
+        im, fun, stop = self.animation.get(self.index)
+        self.image = im
+        self.update_image(32, 64)
+
+        self.index[1] = fun(self.index[1])
+
+        if stop and self.states[0] == 'damaged':
+            self.set_states('dmgdempt')
+        elif stop and self.states[0] == 'dmgdempt':
+            self.kill()
+
+    def update_image(self, x, y):
+        self.rect = self.image.get_rect()
+        if self.board.in_view in self.groups():
+            interim = self.global_pos - self.board.player.focus * self.board.cell_size
+            self.rect.x = interim[1] - x + self.board.cell_width // 2 - self.board.player.in_cell[1]
+            self.rect.y = interim[0] - y + self.board.cell_height // 2 - self.board.player.in_cell[0]
+            return
+        self.rect.x = -200
+        self.rect.y = -200
+
+    def set_states(self, *states):
+        self.animation = self.data_animations[states[0]]
+        self.index = [0, 0]
+        self.states = [i for i in states]
 
 
 class MobsGroup(pygame.sprite.Group):
