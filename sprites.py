@@ -6,6 +6,8 @@ import numpy as np
 
 import states
 
+from math import pi, acos
+
 
 class Animation(list):
     def __init__(self, *args):
@@ -59,6 +61,7 @@ class Object(pygame.sprite.Sprite):
                                  self.global_pos[1] % self.board.cell_width], int)  # y_x
 
         self.hp = None
+        self.full = None
         self.speed = None
         self.damage = None
 
@@ -73,6 +76,19 @@ class Object(pygame.sprite.Sprite):
         self.index = [0, 0]
         self.states = [i for i in states]
 
+    def update_image(self, x, y):
+        self.rect = self.image.get_rect()
+        if self.board.in_view in self.groups():
+            interim = self.global_pos - self.board.player.focus * self.board.cell_size
+            self.rect.x = interim[1] - x + self.board.cell_width // 2 - self.board.player.in_cell[1]
+            self.rect.y = interim[0] - y + self.board.cell_height // 2 - self.board.player.in_cell[0]
+            return
+        self.rect.x = -200
+        self.rect.y = -200
+
+    def upline(self, *args):
+        return False
+
     def takes_damage(self, *args):
         pass
 
@@ -84,6 +100,7 @@ class Mob(Object):
         self.data_animations = data_ani_mobs
 
         self.hp = 80
+        self.full = 80
         self.speed = 6
         self.damage = 15
         self.cdn = 0  # frames, max=60
@@ -114,7 +131,7 @@ class Mob(Object):
 
         self.index[1] = fun(self.index[1])
 
-        if self.to != 30:
+        if self.to != 15:
             self.to += 1
             return
         else:
@@ -122,14 +139,24 @@ class Mob(Object):
 
         # Проверка дальности до игрока
         line = self.board.get_line(self.global_pos, self.board.player.global_pos)
-        if line <= self.rect.w / 2:
+        vector = self.board.player.global_pos - self.global_pos
+        if line <= self.rect.w:
             if self.cdn == 0 and self.states[0].text != 'attack':
+                if vector[0] >= 0:
+                    angle = acos(vector[1] / line)
+                else:
+                    angle = 2 * pi - acos(vector[1] / line)
+
+                if pi / 2 < angle <= 3 * pi / 2:
+                    self.orientation = 1
+                else:
+                    self.orientation = 0
                 self.set_states(states.MobAttack(self.board.player, self))
             elif self.cdn != 0:
                 pass
         elif line <= 300:
             x1, y1 = (self.global_pos - self.board.player.focus * self.board.cell_size - (
-                        self.board.cell_size // 2 - self.board.player.in_cell) + np.array(
+                    self.board.cell_size // 2 - self.board.player.in_cell) + np.array(
                 [64, 64])) // self.board.cell_size
             x2 = self.board.win_width // 2 // self.board.cell_width
             y2 = self.board.win_height // 2 // self.board.cell_height
@@ -142,19 +169,16 @@ class Mob(Object):
         elif line >= 300:
             self.set_states(states.Standing(self))
 
-    def update_image(self, x, y):
-        self.rect = self.image.get_rect()
-        if self.board.in_view in self.groups():
-            interim = self.global_pos - self.board.player.focus * self.board.cell_size
-            self.rect.x = interim[1] - x + self.board.cell_width // 2 - self.board.player.in_cell[1]
-            self.rect.y = interim[0] - y + self.board.cell_height // 2 - self.board.player.in_cell[0]
-            return
-        self.rect.x = -200
-        self.rect.y = -200
+    def upline(self, path, index, line):
+        return index + 1 == np.shape(path)[0] and line <= 64
+
+    def get_rhp(self):
+        return self.hp / self.full
 
     def takes_damage(self, damage):
         self.hp -= damage
         if self.hp <= 0:
+            self.board.player.prg += 1
             self.kill()
 
 
@@ -165,7 +189,11 @@ class Player(Object):
         self.focus = None
         self.update_camera()
 
-        self.hp = 10000
+        self.hp = 100
+        self.full = self.hp
+        self.prg = 0
+        self.full_prg = 100
+        self.n = 5
         self.speed = 10  # p/frame
         self.damage = 10
         self.cdn = 0  # max=45 frames
@@ -230,6 +258,17 @@ class Player(Object):
                                (self.global_pos[1] - self.board.win_width // 2 -
                                 self.in_cell[1]) // self.board.cell_width + 1], int)
 
+    def get_rhp(self):
+        return self.hp / self.full
+
+    def get_prg(self):
+        return self.prg
+
+    def heal(self):
+        if self.n >= 1:
+            self.hp = self.full
+            self.n -= 1
+
     def takes_damage(self, damage):
         self.hp -= damage
 
@@ -276,9 +315,14 @@ class Cursor:
 
 
 class ImageInterface(pygame.sprite.Sprite):
-    def __init__(self, *args):
+    def __init__(self, nmb, *args):
         super().__init__(*args)
         self.do = None
+        self.lvl = None
+        self.nmb = nmb
+
+    def set_level(self, lvl):
+        self.lvl = lvl
 
     def set_func(self, func):
         self.do = func
@@ -288,10 +332,8 @@ class ImageInterface(pygame.sprite.Sprite):
 
 
 class Effect(Object):
-    def __init__(self, flag, time, *args):
+    def __init__(self, flag, *args):
         super().__init__(*args)
-
-        self.lifetime = time
 
         try:
             for name in os.listdir(f'data_images/effects/{flag}'):
@@ -333,20 +375,38 @@ class EfDamaged(Effect):
         elif stop and self.states[0] == 'dmgdempt':
             self.kill()
 
-    def update_image(self, x, y):
-        self.rect = self.image.get_rect()
-        if self.board.in_view in self.groups():
-            interim = self.global_pos - self.board.player.focus * self.board.cell_size
-            self.rect.x = interim[1] - x + self.board.cell_width // 2 - self.board.player.in_cell[1]
-            self.rect.y = interim[0] - y + self.board.cell_height // 2 - self.board.player.in_cell[0]
-            return
-        self.rect.x = -200
-        self.rect.y = -200
-
     def set_states(self, *states):
         self.animation = self.data_animations[states[0]]
         self.index = [0, 0]
         self.states = [i for i in states]
+
+
+class EfHp(Effect):
+    def __init__(self, sprite, *args):
+        super().__init__('hp', *args)
+        self.object = sprite
+
+        im = pygame.Surface((100, 4))
+        self.image = im
+        self.update_image(50, 64)
+
+    def update(self):
+        if not self.object.groups():
+            self.kill()
+            return
+
+        self.global_pos = self.object.global_pos.copy()
+        up = self.object.get_rhp() // 0.1
+
+        im = pygame.Surface((100, 4))
+        for i in range(10):
+            if i < up:
+                pygame.draw.rect(im, (0, 200, 0), (10 * i, 0, 10, 4))
+            else:
+                pygame.draw.rect(im, (200, 0, 0), (10 * i, 0, 10, 4))
+
+        self.image = im
+        self.update_image(50, 64)
 
 
 class MobsGroup(pygame.sprite.Group):

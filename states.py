@@ -32,7 +32,7 @@ class Attack(State):
         if self.object.index[0] == len(self.object.animation) // 2 and self.object.index[1] == 0:
             vector = self.target.global_pos - self.object.global_pos
             line = np.sum(vector * vector) ** 0.5
-            if line <= self.object.rect.w / 3 * 2:
+            if line <= self.object.rect.w:
                 self.object.board.set_attack(self.object, self.target)
 
 
@@ -66,7 +66,7 @@ class Moving(State):
         self.text = 'moving'
 
     def do(self):
-        time = self.clock.tick() // self.object.board.fps
+        time = 1
         speed = self.object.speed
 
         start = self.object.global_pos
@@ -75,7 +75,7 @@ class Moving(State):
         # y1 - y2 т.к. перевернутый Y в системе координат
         vector = np.array([start[0] - end[0], end[1] - start[1]], int)
         line = np.sum(vector * vector) ** 0.5  # Рассторяние до цели
-        if line <= 20:  # Достижение опр клетки в пути
+        if line <= 20 or self.object.upline(self.path, self.target, line):  # Достижение опр клетки в пути
             self.target += 1
             if self.target == np.shape(self.path)[0]:
                 _ = self.object.states.pop(0)
@@ -100,8 +100,9 @@ class Moving(State):
 
 
 class StInter:
-    def __init__(self, state, funcs):
-        spr = pygame.sprite.Sprite()
+    def __init__(self, state, funcs, object):
+        spr = sprites.ImageInterface('999')
+        spr.set_level(0)
         spr.image = pygame.Surface((10, 10))
         spr.rect = spr.image.get_rect()
         spr.rect.x = 0
@@ -110,6 +111,8 @@ class StInter:
             'pass': [spr, ],
             'act': []
         }
+
+        self.object = object
 
         self.funcs = funcs.copy()
 
@@ -125,8 +128,9 @@ class StInter:
         interim.sort(key=lambda obj: int(obj.rstrip('.png').split('_')[-1]))
         for name in interim:
             x, y = tuple(map(int, name.rstrip('.png').split('_')[-2].split('x')))
-            sprite = sprites.ImageInterface()
+            sprite = sprites.ImageInterface(name.split('_')[1])
             sprite.set_func(funcs[name.split('_')[-4]])
+            sprite.set_level(int(name.rstrip('.png').split('_')[-1]))
             sprite.image = pygame.image.load(os.path.join(r'data_images/interface', name))
             sprite.rect = sprite.image.get_rect()
             sprite.rect.x = x
@@ -139,8 +143,24 @@ class StInter:
     def get_environment(self):
         return self.sprites.copy()
 
+    def update(self):
+        pass
+
     def clear(self):
         _ = self.sprites['pass'].pop(0)
+
+    def set_sprite(self, surface, fun, gr, pos, lvl, nmb):
+        spr = sprites.ImageInterface(nmb)
+        spr.image = surface
+        spr.rect = spr.image.get_rect()
+        spr.rect.x = pos[0]
+        spr.rect.y = pos[1]
+        spr.set_func(self.funcs[fun])
+        spr.set_level(lvl)
+        self.sprites[gr].append(spr)
+
+        self.sprites['pass'].sort(key=lambda ob: ob.lvl)
+        self.sprites['act'].sort(key=lambda ob: ob.lvl)
 
     def set_background(self, *args):
         pass
@@ -151,8 +171,37 @@ class InGame(StInter):
         super().__init__('ingame', *args)
         self.text = 'ingame'
 
-    def get_hp(self, dlt):
-        pass
+        self.update()
+
+    def update(self):
+        font_h = pygame.font.Font(None, 30)
+        health = font_h.render(f'{int(self.object.get_info()[0] * 100)}%', True, (200, 30, 10))
+        pos_h = (500, 656)
+        scr_h = pygame.Surface((health.get_width(), health.get_height()))
+        scr_h.set_colorkey((0, 0, 0))
+        scr_h.blit(health, (0, 0))
+
+        font_n = pygame.font.Font(None, 30)
+        nul = font_n.render(f'{self.object.get_info()[1]}', True, (100, 63, 150))
+        pos_n = (600, 656)
+        scr_n = pygame.Surface((nul.get_width(), nul.get_height()))
+        scr_n.set_colorkey((0, 0, 0))
+        scr_n.blit(nul, (0, 0))
+
+        font_p = pygame.font.Font(None, 30)
+        prg = font_p.render(f'Монстров на ВАШЕМ счету: {self.object.get_info()[2]}', True, (189, 178, 34))
+        pos_p = (450, 604)
+        scr_p = pygame.Surface((prg.get_width(), prg.get_height()))
+        scr_p.set_colorkey((0, 0, 0))
+        scr_p.blit(prg, (0, 0))
+
+        for i, spr in enumerate(self.sprites['pass']):
+            if spr.nmb == '777' or spr.nmb == '345' or spr.nmb == '235':
+                self.sprites['pass'].pop(i)
+
+        self.set_sprite(scr_h, 'none', 'pass', pos_h, 1, '777')
+        self.set_sprite(scr_p, 'none', 'pass', pos_p, 1, '345')
+        self.set_sprite(scr_n, 'none', 'pass', pos_n, 1, '235')
 
 
 class Pause(StInter):
@@ -161,7 +210,30 @@ class Pause(StInter):
 
     def set_background(self, surface):
         _ = self.sprites['pass'].pop(0)
-        sprite = sprites.ImageInterface()
+        sprite = sprites.ImageInterface('634')
+        sprite.set_func(self.funcs['none'])
+        sprite.image = surface
+        sprite.rect = sprite.image.get_rect()
+        sprite.rect.x = 0
+        sprite.rect.y = 0
+
+        self.sprites['pass'] = [sprite] + self.sprites['pass']
+
+
+class Death(StInter):
+    def __init__(self, *args):
+        super().__init__('death', *args)
+
+        font = pygame.font.Font(None, 50)
+        txt = font.render('YOU ARE DEAD', True, (255, 0, 0))
+        face = pygame.Surface((txt.get_width(), txt.get_height()))
+        face.set_colorkey((0, 0, 0))
+        face.blit(txt, (0, 0))
+        self.set_sprite(face, 'none', 'pass', (450, 200), 1, '898')
+
+    def set_background(self, surface):
+        _ = self.sprites['pass'].pop(0)
+        sprite = sprites.ImageInterface('634')
         sprite.set_func(self.funcs['none'])
         sprite.image = surface
         sprite.rect = sprite.image.get_rect()

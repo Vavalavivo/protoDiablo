@@ -27,7 +27,9 @@ class PlayingBoard:
         self.out_view = pygame.sprite.Group()
         self.in_view = pygame.sprite.Group()
         self.effects = pygame.sprite.Group()
-        self.mobs_points = [sprites.MobsGroup(np.array([600, 2500], int))]
+        self.mobs_points = [sprites.MobsGroup(np.array([1000, 2500], int)),
+                            sprites.MobsGroup(np.array([1800, 2000], int)),
+                            sprites.MobsGroup(np.array([1300, 3000], int))]
 
         self.width = 9
         self.height = 11
@@ -41,7 +43,7 @@ class PlayingBoard:
         with open(filename, 'r') as file:
             interim = [i.rstrip('\n').split() for i in file.readlines()]
 
-        output = np.zeros((30, 100), dtype=int)
+        output = np.zeros((50, 100), dtype=int)
         for y, mas in enumerate(interim):
             for x, mark in enumerate(mas):
                 if mark != '_':
@@ -154,7 +156,7 @@ class PlayingBoard:
                     if xd in (-1, 1) and yd != 0 and 0 in (map[y, 1 + x], map[y, -1 + x]) or \
                             yd in (-1, 1) and xd != 0 and 0 in (map[1 + y, x], map[-1 + y, x]):
                         continue
-                    if map[y + yd, x + xd] != 0:
+                    if map[y + yd, x + xd] // 10 != 8 and map[y + yd, x + xd] // 10 != 9:
                         tr = d.get((x + xd, y + yd), -1)
                         if tr == -1:
                             d[(x + xd, y + yd)] = d[(x, y)] + [(y + yd, x + xd)]  # y_x т.к. в self.map y_x
@@ -193,10 +195,13 @@ class PlayingBoard:
         for key in keys:
             value = self.attacks.pop(key)
             for sprite, damage in value:
+                flag = sprite.hp == sprite.full
                 sprite.takes_damage(damage)
-                ef = sprites.EfDamaged(120, sprite.global_pos.copy(), self)
-                self.effects.add(ef)
-                self.out_view.add(ef)
+                dmg = sprites.EfDamaged(sprite.global_pos.copy(), self)
+                if sprite != self.player and flag:
+                    hp = sprites.EfHp(sprite, sprite.global_pos.copy(), self, (self.effects, self.out_view))
+                self.effects.add(dmg)
+                self.out_view.add(dmg)
 
         self.effects.draw(self.screen)
 
@@ -206,18 +211,19 @@ class PlayingBoard:
 
 
 class Interface:
-    def __init__(self, screen, running):
+    def __init__(self, screen, running, board):
         self.funcs = {
             'continue': self.continue_gm,
             'save': self.save_gm,
             'exit': self.exit,
             'none': self.nothing
         }
-
-        self.states = {'ingame': states.InGame(self.funcs),
-                       'pause': states.Pause(self.funcs),
-                       'menu': states.Menu(self.funcs),
-                       'dialog': states.Dialog(self.funcs)}
+        self.board = board
+        self.states = {'ingame': states.InGame(self.funcs, self),
+                       'death': states.Death(self.funcs, self),
+                       'pause': states.Pause(self.funcs, self),
+                       'menu': states.Menu(self.funcs, self),
+                       'dialog': states.Dialog(self.funcs, self)}
 
         self.running = running
         self.screen = screen
@@ -228,8 +234,10 @@ class Interface:
         self.past_screen = self.screen.copy()
 
     def draw(self):
-        self.states[self.state].set_background(self.past_screen)
-        for key, value in self.states[self.state].get_environment().items():
+        state = self.states[self.state]
+        state.set_background(self.past_screen)
+        state.update()
+        for key, value in state.get_environment().items():
             for sprite in value:
                 if key == 'pass':
                     self.passive.add(sprite)
@@ -249,16 +257,22 @@ class Interface:
         self.state = state
 
     def clicked(self, mp):
-        for sprite in self.states[self.state].sprites['act']:
+        for sprite in self.states[self.state].sprites['act'] + self.states[self.state].sprites['pass']:
             if sprite.rect.collidepoint(mp):
                 sprite.get_func()()
                 return True
+
+    def get_info(self):
+        return self.board.player.get_rhp(), self.board.player.n, self.board.player.get_prg()
 
     def continue_gm(self):
         self.set_state('ingame')
 
     def save_gm(self):
         pass
+        '''with open('data_player.txt', 'w') as file:
+            file.write('x'.join(self.board.player.global_pos))
+            file.write(self.board.player.prg)'''
 
     def exit(self):
         self.running[0] = False
@@ -276,13 +290,13 @@ def main():
 
     FPS = 30
     running = [True]
-    interface = Interface(screen, running)
     board = PlayingBoard(screen, running, 'map.txt', FPS)
     if not running[0]:
         return
     cursor = sprites.Cursor(screen, running, board)
     player = sprites.Player(np.array([540, 2000], int), board)
     board.set_ref(cursor, player)
+    interface = Interface(screen, running, board)
     clock = pygame.time.Clock()
 
     while running[0]:
@@ -298,11 +312,17 @@ def main():
             if event.type == pygame.MOUSEBUTTONUP:
                 cursor.update('idle')
             if event.type == pygame.KEYDOWN:
-                if event.key == 27:
-                    if interface.state == 'ingame':
+                if interface.state == 'ingame':
+                    if event.key == 27:
                         interface.set_state('pause')
-                    else:
+                    elif event.key == 101:
+                        board.player.heal()
+                else:
+                    if event.key == 27:
                         interface.set_state('ingame')
+
+        if player.hp <= 0:
+            interface.set_state('death')
 
         screen.fill((0, 255, 0))
         if interface.state == 'ingame':
