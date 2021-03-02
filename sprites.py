@@ -8,6 +8,8 @@ import states
 
 from math import pi, acos
 
+import random
+
 
 class Animation(list):
     def __init__(self, *args):
@@ -97,6 +99,7 @@ class Mob(Object):
     def __init__(self, *args):
         super().__init__(*args)
 
+        self.orientation = random.choice((0, 1))
         self.data_animations = data_ani_mobs
 
         self.hp = 80

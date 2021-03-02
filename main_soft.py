@@ -29,7 +29,8 @@ class PlayingBoard:
         self.effects = pygame.sprite.Group()
         self.mobs_points = [sprites.MobsGroup(np.array([1000, 2500], int)),
                             sprites.MobsGroup(np.array([1800, 2000], int)),
-                            sprites.MobsGroup(np.array([1300, 3000], int))]
+                            sprites.MobsGroup(np.array([1300, 3000], int)),
+                            sprites.MobsGroup(np.array([540, 1700], int))]
 
         self.width = 9
         self.height = 11
@@ -71,7 +72,7 @@ class PlayingBoard:
         [self.create_mobs(gr) for gr in self.mobs_points]
 
     def create_mobs(self, point):
-        for _ in range(random.randint(1, 3)):
+        for _ in range(random.randint(1, 5)):
             pos = np.array([random.randint(point.global_pos[0] - 256, point.global_pos[0] + 256),
                             random.randint(point.global_pos[1] - 256, point.global_pos[1] + 256)], int)
             spt = sprites.Mob(pos, self)
